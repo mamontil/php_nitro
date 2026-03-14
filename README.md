@@ -24,8 +24,9 @@ NitroJSON uses **Rust**, **SIMD instructions**, and **Memory Mapping (mmap)** to
 
 ## Usage
 
+```php
 require_once 'php/NitroJson.php';
-NitroJson::load(); // Auto-detects .dll or .so
+NitroJson::load(); 
 
-// Zero-copy extraction from huge files
 $val = nitro_json_from_file('huge_log.json', 'data.user.email');
+echo $val;
