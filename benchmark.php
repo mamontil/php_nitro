@@ -2,23 +2,26 @@
 
 require_once __DIR__ . '/php/NitroJson.php';
 
+use Nitro\NitroJson;
+
 try {
-    // Автоматическая загрузка DLL из target/release
     NitroJson::load();
 } catch (Exception $e) {
-    die($e->getMessage() . "\n");
+    die("Setup Error: " . $e->getMessage() . "\n");
 }
 
 $filePath = 'ultra_heavy.json';
-$itemsCount = 5000000;
+$itemsCount = 1_000_000;
 
-if (!file_exists($filePath)) {
-    echo "--- Generating heavy JSON (~300MB). Please wait...\n";
+if (!is_file($filePath)) {
+    echo "--- Generating heavy JSON (~60MB for 1M items). Please wait...\n";
     $f = fopen($filePath, 'w');
     fwrite($f, '{"metadata":{"version":1.0},"data":[');
     for ($i = 0; $i < $itemsCount; $i++) {
         $comma = ($i === $itemsCount - 1) ? "" : ",";
-        fwrite($f, '{"id":'.$i.',"payload":"data_'.md5($i).'"}'.$comma);
+        // Генерируем данные
+        $payload = bin2hex(random_bytes(8));
+        fwrite($f, '{"id":'.$i.',"payload":"'.$payload.'"}'.$comma);
     }
     fwrite($f, '],"footer":"FINAL_BINGO"}');
     fclose($f);
@@ -30,10 +33,12 @@ echo "File size: " . round(filesize($filePath) / 1024 / 1024, 2) . " MB\n\n";
 
 // 1. NITRO TEST
 $s = microtime(true);
-$memNitroStart = memory_get_peak_usage();
-$resNitro = nitro_json_from_file($filePath, "footer");
+$memStart = memory_get_peak_usage();
+
+$resNitro = NitroJson::fromFile($filePath, "footer");
+
 $tNitro = microtime(true) - $s;
-$memNitroTotal = memory_get_peak_usage() - $memNitroStart;
+$memNitroTotal = memory_get_peak_usage() - $memStart;
 
 echo "[NitroJSON]\n";
 echo "Result: $resNitro\n";
@@ -59,4 +64,5 @@ echo "RAM:    " . round($memPhpTotal / 1024 / 1024, 2) . " MB\n\n";
 
 echo "=== FINAL VERDICT ===\n";
 echo "Speed:  " . round($tPhp / $tNitro, 1) . "x faster\n";
-echo "Memory: " . ($memNitroTotal === 0 ? "Infinite" : round($memPhpTotal / $memNitroTotal, 1) . "x") . " more efficient\n";
+$efficient = $memNitroTotal <= 0 ? "Infinite" : round($memPhpTotal / $memNitroTotal, 1) . "x";
+echo "Memory: " . $efficient . " more efficient\n";

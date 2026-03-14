@@ -1,58 +1,94 @@
 <?php
 
-final class NitroJson {
+declare(strict_types=1);
+
+namespace Nitro;
+
+use FFI;
+use Exception;
+use RuntimeException;
+
+/**
+ * NitroJson - High-performance JSON extractor powered by Rust.
+ */
+final class NitroJson
+{
     private static ?FFI $ffi = null;
 
     /**
-     * Загрузка библиотеки.
-     * Если путь не указан, пытается найти в стандартных папках.
+     * Загрузка библиотеки с проверкой окружения и ОС.
      */
-    public static function load(?string $libPath = null): void {
-        if (self::$ffi !== null) return;
+    public static function load(?string $libPath = null): void
+    {
+        if (self::$ffi !== null) {
+            return;
+        }
+
+        if (!extension_loaded('ffi')) {
+            throw new RuntimeException("NitroJson Error: FFI extension is not loaded.");
+        }
+
+        $ffiRestrict = ini_get('ffi.enable');
+        if ($ffiRestrict === '0' || (PHP_SAPI !== 'cli' && $ffiRestrict !== '1')) {
+            throw new RuntimeException("NitroJson Error: FFI is disabled or restricted (ffi.enable=" . $ffiRestrict . ").");
+        }
 
         if ($libPath === null) {
-            $extension = PHP_OS_FAMILY === 'Windows' ? '.dll' : '.so';
-            $libPath = dirname(__DIR__) . "/target/release/nitro_core" . $extension;
+            // На Windows Cargo обычно не добавляет префикс 'lib'
+            $prefix = PHP_OS_FAMILY === 'Windows' ? '' : 'lib';
+            $extension = match (PHP_OS_FAMILY) {
+                'Windows' => '.dll',
+                'Darwin'  => '.dylib',
+                default   => '.so',
+            };
+            $libPath = dirname(__DIR__) . "/target/release/{$prefix}nitro_core" . $extension;
         }
 
-        if (!file_exists($libPath)) {
-            throw new Exception("NitroJson Error: Library not found at $libPath. Did you run 'cargo build --release'?");
+        if (!is_file($libPath)) {
+            throw new RuntimeException("NitroJson Error: Library not found at: $libPath. Build it with 'cargo build --release'.");
         }
 
-        self::$ffi = FFI::cdef("
-            char *nitro_get_field(const char *json, const char *key);
-            char *nitro_json_from_file(const char *path, const char *key);
-            void nitro_free_string(char *s);
-        ", $libPath);
+        try {
+            self::$ffi = FFI::cdef("
+                char *nitro_get_field(const char *json, const char *key);
+                char *nitro_json_from_file(const char *path, const char *key);
+                void nitro_free_string(char *s);
+            ", $libPath);
+        } catch (Exception $e) {
+            throw new RuntimeException("NitroJson Error: Failed to load C definitions: " . $e->getMessage());
+        }
     }
 
-    public static function getFFI(): FFI {
+    public static function getField(string $json, string $key): ?string
+    {
+        $ffi = self::getFFI();
+        $ptr = $ffi->nitro_get_field($json, $key);
+        return $ptr === null ? null : self::extractAndFree($ptr);
+    }
+
+    public static function fromFile(string $path, string $key): ?string
+    {
+        if (!is_file($path)) {
+            return null;
+        }
+
+        $ffi = self::getFFI();
+        $ptr = $ffi->nitro_json_from_file($path, $key);
+        return $ptr === null ? null : self::extractAndFree($ptr);
+    }
+
+    private static function getFFI(): FFI
+    {
         if (self::$ffi === null) {
-            throw new Exception("NitroJson Error: Library not initialized. Call NitroJson::load() first.");
+            self::load();
         }
         return self::$ffi;
     }
-}
 
-/**
- * Извлечение значения из JSON-строки по ключу (поддерживает вложенность через точку)
- */
-function nitro_get_field(string $json, string $key): ?string {
-    $ptr = NitroJson::getFFI()->nitro_get_field($json, $key);
-    if ($ptr === null) return null;
-    $res = FFI::string($ptr);
-    NitroJson::getFFI()->nitro_free_string($ptr);
-    return $res;
-}
-
-/**
- * Извлечение значения напрямую из файла (Zero-copy mmap)
- */
-function nitro_json_from_file(string $path, string $key): ?string {
-    if (!file_exists($path)) return null;
-    $ptr = NitroJson::getFFI()->nitro_json_from_file($path, $key);
-    if ($ptr === null) return null;
-    $res = FFI::string($ptr);
-    NitroJson::getFFI()->nitro_free_string($ptr);
-    return $res;
+    private static function extractAndFree(FFI\CData $ptr): string
+    {
+        $res = FFI::string($ptr);
+        self::$ffi->nitro_free_string($ptr);
+        return $res;
+    }
 }
