@@ -1,0 +1,12 @@
+[package]
+name = "nitro_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "nitro_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+simd-json = "0.13"
+memmap2 = "0.9"

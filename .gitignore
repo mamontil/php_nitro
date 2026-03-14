@@ -1,0 +1,6 @@
+/target
+/ultra_heavy.json
+/huge_data.json
+*.dll
+*.so
+Cargo.lock
